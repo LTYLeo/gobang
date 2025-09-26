@@ -28,11 +28,14 @@
             line-height: 1.6;
             padding: 20px;
             min-height: 100vh;
+            display: flex;
+            flex-direction: column;
         }
 
         .container {
             max-width: 1200px;
             margin: 0 auto;
+            flex: 1;
         }
 
         header {
@@ -92,6 +95,7 @@
             margin: 0 auto;
             max-width: 500px;
             max-height: 500px;
+            position: relative;
         }
 
         .cell {
@@ -162,6 +166,11 @@
             background-color: #d9d9e3;
         }
 
+        .btn:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
         .status {
             padding: 15px;
             border-radius: 5px;
@@ -169,6 +178,31 @@
             margin-bottom: 20px;
             text-align: center;
             font-weight: bold;
+            min-height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .thinking {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid transparent;
+            border-top: 2px solid var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
 
         .mode-selector {
@@ -211,6 +245,15 @@
             border-bottom: none;
         }
 
+        footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border-color);
+            color: #6e6e80;
+            font-size: 0.9rem;
+        }
+
         @media (max-width: 768px) {
             .main-content {
                 flex-direction: column;
@@ -243,6 +286,7 @@
                     <div class="controls">
                         <button class="btn" id="restartBtn">重新开始</button>
                         <button class="btn btn-secondary" id="undoBtn">悔棋</button>
+                        <button class="btn btn-secondary" id="hintBtn">提示</button>
                     </div>
                 </div>
             </div>
@@ -311,7 +355,9 @@
             gameOver: false,
             stepCount: 0,
             lastMove: {x: -1, y: -1},
-            moveHistory: []
+            moveHistory: [],
+            isThinking: false,
+            hintPosition: null
         };
 
         // DOM元素
@@ -319,6 +365,7 @@
         const gameStatus = document.getElementById('gameStatus');
         const restartBtn = document.getElementById('restartBtn');
         const undoBtn = document.getElementById('undoBtn');
+        const hintBtn = document.getElementById('hintBtn');
         const modeButtons = document.querySelectorAll('.mode-btn');
         const moveHistory = document.getElementById('moveHistory');
 
@@ -338,10 +385,17 @@
             gameState.stepCount = 0;
             gameState.lastMove = {x: -1, y: -1};
             gameState.moveHistory = [];
+            gameState.isThinking = false;
+            gameState.hintPosition = null;
             
             updateMoveHistory();
             renderBoard();
             updateStatus();
+            
+            // 启用按钮
+            restartBtn.disabled = false;
+            undoBtn.disabled = false;
+            hintBtn.disabled = false;
         }
 
         // 渲染棋盘
@@ -360,6 +414,11 @@
                         cell.classList.add('last-move');
                     }
                     
+                    // 标记提示位置
+                    if (gameState.hintPosition && i === gameState.hintPosition.x && j === gameState.hintPosition.y) {
+                        cell.style.boxShadow = 'inset 0 0 0 2px #ff0000';
+                    }
+                    
                     // 添加棋子
                     if (gameState.board[i][j] === PLAYER) {
                         cell.classList.add('player');
@@ -368,7 +427,7 @@
                     }
                     
                     // 添加点击事件
-                    if (!gameState.gameOver) {
+                    if (!gameState.gameOver && !gameState.isThinking) {
                         cell.addEventListener('click', () => handleCellClick(i, j));
                     }
                     
@@ -379,7 +438,7 @@
 
         // 处理单元格点击
         function handleCellClick(row, col) {
-            if (gameState.gameOver || gameState.board[row][col] !== EMPTY) {
+            if (gameState.gameOver || gameState.board[row][col] !== EMPTY || gameState.isThinking) {
                 return;
             }
             
@@ -426,6 +485,7 @@
             gameState.board[row][col] = player;
             gameState.stepCount++;
             gameState.lastMove = {x: row, y: col};
+            gameState.hintPosition = null; // 清除提示
             
             // 记录历史
             gameState.moveHistory.push({
@@ -438,59 +498,305 @@
             renderBoard();
         }
 
-        // AI落子
+        // AI落子 - 修复版本
         function makeAIMove() {
             if (gameState.gameOver) return;
             
-            // 简化版AI逻辑（实际实现需要更复杂的评估函数）
-            let bestScore = -Infinity;
-            let bestMove = {x: 0, y: 0};
+            gameState.isThinking = true;
+            updateStatus();
             
-            // 第一步下在中心
-            if (gameState.stepCount === 1) {
-                bestMove.x = Math.floor(BOARD_SIZE / 2);
-                bestMove.y = Math.floor(BOARD_SIZE / 2);
-            } else {
-                // 寻找最佳落子位置
-                for (let i = 0; i < BOARD_SIZE; i++) {
-                    for (let j = 0; j < BOARD_SIZE; j++) {
-                        if (gameState.board[i][j] === EMPTY) {
-                            // 简化评估：基于位置价值和邻近棋子
-                            let score = POSITION_VALUE[i][j];
-                            
-                            // 检查邻近是否有棋子
-                            if (hasNeighbor(i, j, 2)) {
-                                score += 10;
-                            }
-                            
-                            // 检查是否能够形成连线
-                            score += evaluatePosition(i, j, AI);
-                            
-                            if (score > bestScore) {
-                                bestScore = score;
-                                bestMove = {x: i, y: j};
-                            }
+            // 延迟执行，让UI有时间更新
+            setTimeout(() => {
+                let bestMove = {x: 0, y: 0};
+                
+                // 第一步下在中心
+                if (gameState.stepCount === 1) {
+                    bestMove.x = Math.floor(BOARD_SIZE / 2);
+                    bestMove.y = Math.floor(BOARD_SIZE / 2);
+                } else {
+                    // 1. 检查是否有立即获胜的机会
+                    const immediateWin = findImmediateWin(AI);
+                    if (immediateWin) {
+                        bestMove = immediateWin;
+                    } else {
+                        // 2. 检查是否需要立即防守（玩家有活四、冲四或双活三等威胁）
+                        const criticalDefense = findCriticalDefensiveMove();
+                        if (criticalDefense) {
+                            bestMove = criticalDefense;
+                        } else {
+                            // 3. 多步预判：评估所有可能位置
+                            bestMove = findBestMove();
+                        }
+                    }
+                }
+                
+                makeMove(bestMove.x, bestMove.y, AI);
+                
+                // 检查游戏是否结束
+                if (checkWin(bestMove.x, bestMove.y, AI)) {
+                    gameState.gameOver = true;
+                    gameState.isThinking = false;
+                    updateStatus();
+                    return;
+                }
+                
+                gameState.currentPlayer = PLAYER;
+                gameState.isThinking = false;
+                updateStatus();
+                renderBoard(); // 重新渲染棋盘以启用点击事件
+            }, 500);
+        }
+
+        // 寻找立即获胜的机会
+        function findImmediateWin(player) {
+            for (let i = 0; i < BOARD_SIZE; i++) {
+                for (let j = 0; j < BOARD_SIZE; j++) {
+                    if (gameState.board[i][j] === EMPTY) {
+                        gameState.board[i][j] = player;
+                        if (checkWin(i, j, player)) {
+                            gameState.board[i][j] = EMPTY;
+                            return {x: i, y: j};
+                        }
+                        gameState.board[i][j] = EMPTY;
+                    }
+                }
+            }
+            return null;
+        }
+
+        // 寻找关键防守位置（活四、冲四、双活三等）
+        function findCriticalDefensiveMove() {
+            const opponent = PLAYER;
+            let maxThreat = 0;
+            let bestDefense = null;
+            
+            // 扫描整个棋盘寻找威胁
+            for (let i = 0; i < BOARD_SIZE; i++) {
+                for (let j = 0; j < BOARD_SIZE; j++) {
+                    if (gameState.board[i][j] === EMPTY) {
+                        const threatLevel = evaluateThreatLevel(i, j, opponent);
+                        if (threatLevel > maxThreat) {
+                            maxThreat = threatLevel;
+                            bestDefense = {x: i, y: j};
                         }
                     }
                 }
             }
             
-            makeMove(bestMove.x, bestMove.y, AI);
-            
-            // 检查游戏是否结束
-            if (checkWin(bestMove.x, bestMove.y, AI)) {
-                gameState.gameOver = true;
-                updateStatus();
-                return;
+            // 如果有高威胁（活四、冲四、双活三），则防守
+            if (maxThreat >= 10000) {
+                return bestDefense;
             }
             
-            gameState.currentPlayer = PLAYER;
-            updateStatus();
+            return null;
+        }
+
+        // 评估威胁级别
+        function evaluateThreatLevel(x, y, player) {
+            gameState.board[x][y] = player;
+            let threatLevel = 0;
+            
+            // 检查直接获胜威胁
+            if (checkWin(x, y, player)) {
+                threatLevel = 20000; // 最高级别威胁
+                gameState.board[x][y] = EMPTY;
+                return threatLevel;
+            }
+            
+            // 检查活四威胁
+            if (checkOpenFour(x, y, player)) {
+                threatLevel = Math.max(threatLevel, 15000);
+            }
+            // 检查冲四威胁
+            else if (checkHalfOpenFour(x, y, player)) {
+                threatLevel = Math.max(threatLevel, 10000);
+            }
+            // 检查双活三威胁
+            else if (checkDoubleOpenThree(x, y, player)) {
+                threatLevel = Math.max(threatLevel, 8000);
+            }
+            // 检查活三威胁
+            else if (checkOpenThree(x, y, player)) {
+                threatLevel = Math.max(threatLevel, 5000);
+            }
+            
+            gameState.board[x][y] = EMPTY;
+            return threatLevel;
+        }
+
+        // 寻找最佳落子位置
+        function findBestMove() {
+            let bestScore = -Infinity;
+            let bestMove = {x: 0, y: 0};
+            const candidateMoves = [];
+            
+            // 获取所有候选位置（只考虑有棋子周围的区域）
+            for (let i = 0; i < BOARD_SIZE; i++) {
+                for (let j = 0; j < BOARD_SIZE; j++) {
+                    if (gameState.board[i][j] === EMPTY && hasNeighbor(i, j, 2)) {
+                        candidateMoves.push({x: i, y: j});
+                    }
+                }
+            }
+            
+            // 如果没有候选位置，随机选择
+            if (candidateMoves.length === 0) {
+                while (true) {
+                    const x = Math.floor(Math.random() * BOARD_SIZE);
+                    const y = Math.floor(Math.random() * BOARD_SIZE);
+                    if (gameState.board[x][y] === EMPTY) {
+                        return {x, y};
+                    }
+                }
+            }
+            
+            // 评估每个候选位置
+            for (const move of candidateMoves) {
+                let score = evaluatePosition(move.x, move.y, AI, PLAYER);
+                
+                // 多步预判：考虑对手的应对
+                gameState.board[move.x][move.y] = AI;
+                const opponentScore = evaluateBestResponse(PLAYER, AI);
+                gameState.board[move.x][move.y] = EMPTY;
+                
+                // 最终分数 = 我方得分 - 对手得分 * 防御系数
+                const finalScore = score - opponentScore * 0.7;
+                
+                if (finalScore > bestScore) {
+                    bestScore = finalScore;
+                    bestMove = move;
+                }
+            }
+            
+            return bestMove;
+        }
+
+        // 评估位置价值（考虑攻防）
+        function evaluatePosition(x, y, self, opponent) {
+            let score = POSITION_VALUE[x][y]; // 位置基础价值
+            
+            // 临时放置棋子进行评估
+            gameState.board[x][y] = self;
+            score += evaluateLine(x, y, self, opponent);
+            
+            // 评估对手威胁
+            gameState.board[x][y] = opponent;
+            score += evaluateLine(x, y, opponent, self) * 1.2; // 防守权重更高
+            
+            gameState.board[x][y] = EMPTY;
+            
+            return score;
+        }
+        
+        // 评估行、列、对角线的价值
+        function evaluateLine(x, y, self, opponent) {
+            let score = 0;
+            const directions = [[1,0], [0,1], [1,1], [1,-1]]; // 四个方向
+            
+            for (const [dx, dy] of directions) {
+                score += evaluatePattern(x, y, dx, dy, self, opponent);
+            }
+            
+            return score;
+        }
+        
+        // 评估特定方向上的棋型
+        function evaluatePattern(x, y, dx, dy, self, opponent) {
+            let score = 0;
+            let selfCount = 1;  // 当前位置已经假设是self
+            let openEnds = 0;
+            let leftOpen = true, rightOpen = true;
+            
+            // 向左检查
+            for (let i = 1; i <= 4; i++) {
+                const nx = x - i * dx;
+                const ny = y - i * dy;
+                
+                if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) {
+                    leftOpen = false;
+                    break;
+                }
+                
+                if (gameState.board[nx][ny] === self) {
+                    selfCount++;
+                } else if (gameState.board[nx][ny] === opponent) {
+                    leftOpen = false;
+                    break;
+                } else {
+                    break; // 空位
+                }
+            }
+            
+            // 向右检查
+            for (let i = 1; i <= 4; i++) {
+                const nx = x + i * dx;
+                const ny = y + i * dy;
+                
+                if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) {
+                    rightOpen = false;
+                    break;
+                }
+                
+                if (gameState.board[nx][ny] === self) {
+                    selfCount++;
+                } else if (gameState.board[nx][ny] === opponent) {
+                    rightOpen = false;
+                    break;
+                } else {
+                    break; // 空位
+                }
+            }
+            
+            // 计算开放端口
+            if (leftOpen) openEnds++;
+            if (rightOpen) openEnds++;
+            
+            // 根据连子数和开放端口评分
+            switch (selfCount) {
+                case 5: // 五连
+                    score += 100000;
+                    break;
+                case 4:
+                    if (openEnds === 2) score += 10000; // 活四
+                    else if (openEnds === 1) score += 1000; // 冲四
+                    break;
+                case 3:
+                    if (openEnds === 2) score += 1000; // 活三
+                    else if (openEnds === 1) score += 200; // 眠三
+                    break;
+                case 2:
+                    if (openEnds === 2) score += 200; // 活二
+                    else if (openEnds === 1) score += 50; // 眠二
+                    break;
+                case 1:
+                    if (openEnds === 2) score += 10; // 单子
+                    break;
+            }
+            
+            return score;
+        }
+
+        // 评估对手的最佳应对
+        function evaluateBestResponse(opponent, self) {
+            let bestResponseScore = -Infinity;
+            
+            for (let i = 0; i < BOARD_SIZE; i++) {
+                for (let j = 0; j < BOARD_SIZE; j++) {
+                    if (gameState.board[i][j] === EMPTY && hasNeighbor(i, j, 2)) {
+                        const score = evaluatePosition(i, j, opponent, self);
+                        if (score > bestResponseScore) {
+                            bestResponseScore = score;
+                        }
+                    }
+                }
+            }
+            
+            return bestResponseScore;
         }
 
         // 检查是否有邻居棋子
         function hasNeighbor(x, y, distance) {
-            if (gameState.stepCount < 4) return true;
+            if (gameState.stepCount < 4) return true; // 开局时不需要邻居
             
             for (let dx = -distance; dx <= distance; dx++) {
                 for (let dy = -distance; dy <= distance; dy++) {
@@ -509,103 +815,12 @@
             return false;
         }
 
-        // 评估位置价值
-        function evaluatePosition(x, y, player) {
-            let score = 0;
-            const opponent = player === PLAYER ? AI : PLAYER;
-            
-            // 四个方向：水平、垂直、对角线、反对角线
-            const directions = [
-                [0, 1],  // 水平
-                [1, 0],  // 垂直
-                [1, 1],  // 对角线
-                [1, -1]  // 反对角线
-            ];
-            
-            for (const [dx, dy] of directions) {
-                score += evaluateDirection(x, y, dx, dy, player, opponent);
-            }
-            
-            return score;
-        }
-
-        // 评估特定方向
-        function evaluateDirection(x, y, dx, dy, player, opponent) {
-            let score = 0;
-            let count = 1; // 当前位置
-            let openEnds = 0;
-            
-            // 正向检查
-            for (let i = 1; i <= 4; i++) {
-                const nx = x + i * dx;
-                const ny = y + i * dy;
-                
-                if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) {
-                    break;
-                }
-                
-                if (gameState.board[nx][ny] === player) {
-                    count++;
-                } else if (gameState.board[nx][ny] === opponent) {
-                    break;
-                } else {
-                    openEnds++;
-                    break;
-                }
-            }
-            
-            // 反向检查
-            for (let i = 1; i <= 4; i++) {
-                const nx = x - i * dx;
-                const ny = y - i * dy;
-                
-                if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) {
-                    break;
-                }
-                
-                if (gameState.board[nx][ny] === player) {
-                    count++;
-                } else if (gameState.board[nx][ny] === opponent) {
-                    break;
-                } else {
-                    openEnds++;
-                    break;
-                }
-            }
-            
-            // 根据连子数和开放端口评分
-            switch (count) {
-                case 5:
-                    score += 100000;
-                    break;
-                case 4:
-                    if (openEnds >= 1) score += 10000;
-                    break;
-                case 3:
-                    if (openEnds >= 1) score += 1000;
-                    break;
-                case 2:
-                    if (openEnds >= 1) score += 100;
-                    break;
-                case 1:
-                    if (openEnds >= 1) score += 10;
-                    break;
-            }
-            
-            return score;
-        }
-
         // 检查是否获胜
         function checkWin(x, y, player) {
-            const directions = [
-                [0, 1],  // 水平
-                [1, 0],  // 垂直
-                [1, 1],  // 对角线
-                [1, -1]  // 反对角线
-            ];
+            const directions = [[1,0], [0,1], [1,1], [1,-1]];
             
             for (const [dx, dy] of directions) {
-                let count = 1;
+                let count = 1; // 当前位置
                 
                 // 正向检查
                 for (let i = 1; i <= 4; i++) {
@@ -639,14 +854,262 @@
             return false;
         }
 
+        // 检查活四
+        function checkOpenFour(x, y, player) {
+            const directions = [[1,0], [0,1], [1,1], [1,-1]];
+            
+            for (const [dx, dy] of directions) {
+                let count = 1;
+                let leftOpen = true, rightOpen = true;
+                
+                // 向左检查
+                for (let i = 1; i <= 4; i++) {
+                    const nx = x - i * dx;
+                    const ny = y - i * dy;
+                    
+                    if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) {
+                        leftOpen = false;
+                        break;
+                    }
+                    
+                    if (gameState.board[nx][ny] === player) {
+                        count++;
+                    } else if (gameState.board[nx][ny] !== EMPTY) {
+                        leftOpen = false;
+                        break;
+                    } else {
+                        break;
+                    }
+                }
+                
+                // 向右检查
+                for (let i = 1; i <= 4; i++) {
+                    const nx = x + i * dx;
+                    const ny = y + i * dy;
+                    
+                    if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) {
+                        rightOpen = false;
+                        break;
+                    }
+                    
+                    if (gameState.board[nx][ny] === player) {
+                        count++;
+                    } else if (gameState.board[nx][ny] !== EMPTY) {
+                        rightOpen = false;
+                        break;
+                    } else {
+                        break;
+                    }
+                }
+                
+                if (count === 4 && leftOpen && rightOpen) {
+                    return true;
+                }
+            }
+            
+            return false;
+        }
+
+        // 检查冲四
+        function checkHalfOpenFour(x, y, player) {
+            const directions = [[1,0], [0,1], [1,1], [1,-1]];
+            
+            for (const [dx, dy] of directions) {
+                let count = 1;
+                let leftOpen = false, rightOpen = false;
+                
+                // 向左检查
+                for (let i = 1; i <= 4; i++) {
+                    const nx = x - i * dx;
+                    const ny = y - i * dy;
+                    
+                    if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) {
+                        break;
+                    }
+                    
+                    if (gameState.board[nx][ny] === player) {
+                        count++;
+                    } else if (gameState.board[nx][ny] === EMPTY) {
+                        leftOpen = true;
+                        break;
+                    } else {
+                        break;
+                    }
+                }
+                
+                // 向右检查
+                for (let i = 1; i <= 4; i++) {
+                    const nx = x + i * dx;
+                    const ny = y + i * dy;
+                    
+                    if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) {
+                        break;
+                    }
+                    
+                    if (gameState.board[nx][ny] === player) {
+                        count++;
+                    } else if (gameState.board[nx][ny] === EMPTY) {
+                        rightOpen = true;
+                        break;
+                    } else {
+                        break;
+                    }
+                }
+                
+                if (count === 4 && (leftOpen || rightOpen)) {
+                    return true;
+                }
+            }
+            
+            return false;
+        }
+
+        // 检查活三
+        function checkOpenThree(x, y, player) {
+            const directions = [[1,0], [0,1], [1,1], [1,-1]];
+            
+            for (const [dx, dy] of directions) {
+                let count = 1;
+                let leftOpen = true, rightOpen = true;
+                
+                // 向左检查
+                for (let i = 1; i <= 3; i++) {
+                    const nx = x - i * dx;
+                    const ny = y - i * dy;
+                    
+                    if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) {
+                        leftOpen = false;
+                        break;
+                    }
+                    
+                    if (gameState.board[nx][ny] === player) {
+                        count++;
+                    } else if (gameState.board[nx][ny] !== EMPTY) {
+                        leftOpen = false;
+                        break;
+                    } else {
+                        break;
+                    }
+                }
+                
+                // 向右检查
+                for (let i = 1; i <= 3; i++) {
+                    const nx = x + i * dx;
+                    const ny = y + i * dy;
+                    
+                    if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) {
+                        rightOpen = false;
+                        break;
+                    }
+                    
+                    if (gameState.board[nx][ny] === player) {
+                        count++;
+                    } else if (gameState.board[nx][ny] !== EMPTY) {
+                        rightOpen = false;
+                        break;
+                    } else {
+                        break;
+                    }
+                }
+                
+                if (count === 3 && leftOpen && rightOpen) {
+                    return true;
+                }
+            }
+            
+            return false;
+        }
+
+        // 检查双活三
+        function checkDoubleOpenThree(x, y, player) {
+            gameState.board[x][y] = player;
+            let openThreeCount = 0;
+            
+            const directions = [[1,0], [0,1], [1,1], [1,-1]];
+            
+            for (const [dx, dy] of directions) {
+                let count = 1;
+                let leftOpen = true, rightOpen = true;
+                
+                // 向左检查
+                for (let i = 1; i <= 3; i++) {
+                    const nx = x - i * dx;
+                    const ny = y - i * dy;
+                    
+                    if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) {
+                        leftOpen = false;
+                        break;
+                    }
+                    
+                    if (gameState.board[nx][ny] === player) {
+                        count++;
+                    } else if (gameState.board[nx][ny] !== EMPTY) {
+                        leftOpen = false;
+                        break;
+                    } else {
+                        break;
+                    }
+                }
+                
+                // 向右检查
+                for (let i = 1; i <= 3; i++) {
+                    const nx = x + i * dx;
+                    const ny = y + i * dy;
+                    
+                    if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) {
+                        rightOpen = false;
+                        break;
+                    }
+                    
+                    if (gameState.board[nx][ny] === player) {
+                        count++;
+                    } else if (gameState.board[nx][ny] !== EMPTY) {
+                        rightOpen = false;
+                        break;
+                    } else {
+                        break;
+                    }
+                }
+                
+                if (count === 3 && leftOpen && rightOpen) {
+                    openThreeCount++;
+                }
+            }
+            
+            gameState.board[x][y] = EMPTY;
+            return openThreeCount >= 2;
+        }
+
+        // 提供提示
+        function provideHint() {
+            if (gameState.gameOver || gameState.isThinking || gameState.currentPlayer !== PLAYER) {
+                return;
+            }
+            
+            const bestMove = findBestMove();
+            gameState.hintPosition = bestMove;
+            renderBoard();
+            
+            // 5秒后清除提示
+            setTimeout(() => {
+                gameState.hintPosition = null;
+                renderBoard();
+            }, 5000);
+        }
+
         // 更新游戏状态显示
         function updateStatus() {
+            if (gameState.isThinking) {
+                gameStatus.innerHTML = '<div class="thinking"><div class="spinner"></div>Sigma Gobang 正在思考...</div>';
+                return;
+            }
+            
             if (gameState.gameOver) {
                 if (checkWin(gameState.lastMove.x, gameState.lastMove.y, PLAYER)) {
                     gameStatus.textContent = '游戏结束！玩家获胜！';
                 } else if (checkWin(gameState.lastMove.x, gameState.lastMove.y, AI)) {
                     if (gameState.gameMode === 'pvc') {
-                        gameStatus.textContent = '游戏结束！电脑获胜！';
+                        gameStatus.textContent = '游戏结束！Sigma Gobang 获胜！';
                     } else {
                         gameStatus.textContent = '游戏结束！玩家2获胜！';
                     }
@@ -655,10 +1118,10 @@
                 }
             } else {
                 if (gameState.currentPlayer === PLAYER) {
-                    gameStatus.textContent = '当前回合：玩家1 (O)';
+                    gameStatus.textContent = '当前回合：玩家 (O)';
                 } else {
                     if (gameState.gameMode === 'pvc') {
-                        gameStatus.textContent = '当前回合：电脑 (X)';
+                        gameStatus.textContent = '当前回合：Sigma Gobang (X)';
                     } else {
                         gameStatus.textContent = '当前回合：玩家2 (X)';
                     }
@@ -686,8 +1149,8 @@
                 const historyItem = document.createElement('div');
                 historyItem.className = 'history-item';
                 
-                const playerName = move.player === PLAYER ? '玩家1' : 
-                                 (gameState.gameMode === 'pvc' ? '电脑' : '玩家2');
+                const playerName = move.player === PLAYER ? '玩家' : 
+                                 (gameState.gameMode === 'pvc' ? 'Sigma Gobang' : '玩家2');
                 
                 historyItem.textContent = `第${move.step}步: ${playerName} 落子于 (${move.position.x + 1}, ${move.position.y + 1})`;
                 moveHistory.appendChild(historyItem);
@@ -699,7 +1162,7 @@
 
         // 悔棋功能
         function undoMove() {
-            if (gameState.moveHistory.length < 1 || gameState.gameOver) {
+            if (gameState.moveHistory.length < 1 || gameState.gameOver || gameState.isThinking) {
                 return;
             }
             
@@ -739,6 +1202,8 @@
                 undoMove();
             }
         });
+
+        hintBtn.addEventListener('click', provideHint);
 
         // 模式选择
         modeButtons.forEach(button => {
